@@ -1,0 +1,5 @@
+date;order_id;platform;sku;product_name;quantity;price;revenue
+2025-08-01;1001;Wildberries;WB123;Футболка;2;1200;2400
+2025-08-01;1002;Ozon;OZ456;Кроссовки;1;4500;4500
+2025-08-02;1003;Wildberries;WB789;Рюкзак;3;2300;6900
+2025-08-02;1004;Ozon;OZ321;Часы;1;8000;8000
