@@ -1,64 +1,89 @@
 import base64
 import asyncio
-import requests
 from aiogram import Bot, Dispatcher, types, Router
 from aiogram.filters import Command
+from aiogram import F
+from aiogram import types
+import io
+import aiohttp
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 router = Router()
 
 
 @router.message(Command("start"))
 async def handler_start(msg: types.Message):
-    """Обработчик /start — отправляет демо-отчёт"""
+    await msg.answer(
+        "📊 Привет! Отправь мне CSV-файл с продажами, чтобы я сделал анализ."
+    )
+
+
+
+@router.message(F.content_type == "document")
+async def handle_document(msg: types.Message):
+    document = msg.document
+
+    if not document.file_name or not document.file_name.lower().endswith(".csv"):
+        await msg.answer("⚠️ Пожалуйста, загрузите CSV-файл с данными о продажах.")
+        return
 
     await msg.answer("📊 Анализирую данные... пожалуйста, подожди ⏳")
 
     try:
-        with open("demo_sales.csv", "rb") as f:
-            files = {"file": f}
-            data = {"period": "week"}
-            response = requests.post(
-                "http://localhost:8000/analyze", files=files, data=data, timeout=30
-            )
+        # Скачивание файла
+        file_bytes_io = io.BytesIO()
+        await msg.bot.download(document, destination=file_bytes_io)
+        file_bytes_io.seek(0)
 
-        if response.status_code != 200:
-            await msg.answer(f"⚠️ Ошибка при запросе API: {response.text}")
-            return
+        # Подготовка FormData для aiohttp
+        form_data = aiohttp.FormData()
+        form_data.add_field('file', 
+                          file_bytes_io.getvalue(), 
+                          filename=document.file_name,
+                          content_type='text/csv')
+        form_data.add_field('period', 'week')
 
-        report = response.json()
+        # Асинхронный запрос
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "http://localhost:8000/analyze",
+                data=form_data,
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
+                
+                if response.status != 200:
+                    error_text = await response.text()
+                    await msg.answer(f"⚠️ Ошибка анализа: {error_text}")
+                    return
 
-        text = (
-            f"📊 *Dashly — отчёт за неделю*\n\n"
-            f"💰 *Выручка:* {report['revenue']:,} ₽\n"
-            f"📦 *Заказы:* {report['orders']}\n"
-            f"💳 *Средний чек:* {report['avg_check']:.0f} ₽\n"
-            f"💸 *Комиссия:* {report['commission']:,} ₽\n"
-            f"🏦 *Прибыль:* {report['profit']:,} ₽\n\n"
-            f"*ТОП-5 товаров:*\n"
-        )
+                report = await response.json()
 
-        for i, item in enumerate(report["top5"], 1):
-            text += f"{i}. {item['title']} — {item['qty']} шт ({item['revenue_pct']:.1f}% выручки)\n"
-
-        if report.get("tips"):
-            text += "\n*Советы:*\n"
-            for tip in report["tips"]:
-                text += f"💡 {tip}\n"
-
-
+        # Остальная логика отправки отчета...
         image_bytes = base64.b64decode(report["chart_png_base64"])
         image_file = types.BufferedInputFile(image_bytes, filename="chart.png")
 
+        caption = report.get("text_report", "📊 Отчет по продажам")
+        if len(caption) > 1024:
+            caption = caption[:1021] + "..."
+
         await msg.answer_photo(
             photo=image_file,
-            caption=text,
+            caption=caption,
             parse_mode="Markdown",
         )
 
+    except asyncio.TimeoutError:
+        await msg.answer("⏰ Время обработки истекло. Попробуйте еще раз.")
+    
+    except aiohttp.ClientError as e:
+        await msg.answer(f"🌐 Ошибка соединения: {e}")
+    
     except Exception as e:
-        await msg.answer(f"❌ Произошла ошибка: {e}")
-
-
+        await msg.answer(f"❌ Ошибка: {str(e)}")
 async def main():
     bot = Bot(token="8022350360:AAF2zifWihlUoYz0q_GQ1xPCHKJ0vA-hvVQ")
     dp = Dispatcher()
