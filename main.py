@@ -5,7 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PORT = os.getenv("PORT")
+PORT = os.getenv("PORT", 4444)
+print(PORT)
 
 
 if __name__ == "__main__":
