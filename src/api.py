@@ -103,6 +103,8 @@ async def analyze(
     custom_end: Optional[str] = Form(None),
 ):
     period = period.lower()
+    print("period: " + period)
+    print("file_name: " + file.filename)
 
     if period not in ("today", "week", "custom"):
         raise HTTPException(
