@@ -1,6 +1,7 @@
 import base64
+import io
 from fastapi import APIRouter, Form, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional
 from datetime import datetime
 
@@ -166,3 +167,17 @@ async def analyze(
             "text_report": text_report,
         }
     )
+
+
+@router.post("/decode-image")
+async def decode_image(data: dict):
+    b64_str = data.get("chart_png_base64")
+    if not b64_str:
+        raise HTTPException(status_code=400, detail="chart_png_base64 обязателен")
+
+    try:
+        img_bytes = base64.b64decode(b64_str)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Неверный base64")
+
+    return StreamingResponse(io.BytesIO(img_bytes), media_type="image/png")

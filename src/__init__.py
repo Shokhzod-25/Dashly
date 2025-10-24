@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from src.api import router
 from fastapi.middleware.cors import CORSMiddleware
 
