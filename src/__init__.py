@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from src.api import router
-
+from fastapi.middleware.cors import CORSMiddleware
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Dashly API", docs_url="/")
