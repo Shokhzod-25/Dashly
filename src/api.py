@@ -1,29 +1,19 @@
 import base64
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException
+from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Optional
 from datetime import datetime
 
 from src.analyzer import analyze_file_async
 from src.schemas import AnalyzeResponse
+import aiohttp
 
 router = APIRouter()
 
 
 @router.get("/health")
 def health():
-    """Проверка работоспособности API"""
-    return {
-        "status": "ok",
-        "version": "2.0",
-        "features": [
-            "async_processing",
-            "streaming_csv",
-            "custom_periods",
-            "anomaly_detection",
-            "platform_analysis",
-        ],
-    }
+    return {"status": "ok"}
 
 
 def _generate_text_report(result: dict) -> str:
@@ -98,13 +88,13 @@ def _generate_text_report(result: dict) -> str:
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(
     period: str = Form(...),
-    file: UploadFile = File(...),
+    file_url: str = Form(...),
     custom_start: Optional[str] = Form(None),
     custom_end: Optional[str] = Form(None),
 ):
     period = period.lower()
-    print("period: " + period)
-    print("file_name: " + file.filename)
+    print("period:", period)
+    print("file_url:", file_url)
 
     if period not in ("today", "week", "custom"):
         raise HTTPException(
@@ -118,7 +108,6 @@ async def analyze(
                 status_code=400,
                 detail="custom_start и custom_end требуются для настраиваемого периода",
             )
-
         try:
             datetime.strptime(custom_start, "%Y-%m-%d")
             datetime.strptime(custom_end, "%Y-%m-%d")
@@ -127,19 +116,36 @@ async def analyze(
                 status_code=400, detail="Даты должны быть в формате ГГГГ-ММ-ДД."
             )
 
-    content = await file.read()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(file_url) as resp:
+                if resp.status != 200:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Не удалось загрузить файл. Код: {resp.status}",
+                    )
+                content = await resp.read()
+
+                content_disp = resp.headers.get("Content-Disposition", "")
+                if "filename=" in content_disp:
+                    filename = content_disp.split("filename=")[-1].strip('"')
+                else:
+                    filename = file_url.split("/")[-1] or "downloaded_file.csv"
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка загрузки файла: {str(e)}")
+
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(
             status_code=413, detail="Файл слишком большой. Максимальный размер: 50 МБ."
         )
 
-    if not file.filename.lower().endswith((".csv")):  # type: ignore
-        raise HTTPException(status_code=400, detail="Поддерживаются только файлы CSV")
+    if not filename.lower().endswith(".csv"):
+        print("⚠️ Предупреждение: имя файла без .csv, продолжаем как CSV")
 
     try:
         result = await analyze_file_async(
             content,
-            filename=file.filename,  # type: ignore
+            filename=filename,
             period=period,
             custom_start=custom_start,
             custom_end=custom_end,
@@ -154,9 +160,9 @@ async def analyze(
     chart_b64 = base64.b64encode(result["chart_png"]).decode("ascii")
     text_report = _generate_text_report(result)
 
-    response = {
-        "chart_png_base64": chart_b64,
-        "text_report": text_report,
-    }
-
-    return JSONResponse(content=response)
+    return JSONResponse(
+        content={
+            "chart_png_base64": chart_b64,
+            "text_report": text_report,
+        }
+    )
